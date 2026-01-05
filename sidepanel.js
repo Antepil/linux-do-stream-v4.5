@@ -640,12 +640,14 @@ function getTrustBadge(level, isAdmin) {
 async function checkUserStatus() {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'CHECK_USER_STATUS' });
-    if (res && res.loggedIn) {
+    if (res && res.loggedIn && res.user) {
       currentUser = res.user;
       updateUserButton(true);
+      console.log('已登录用户:', currentUser.username);
     } else {
       currentUser = null;
       updateUserButton(false);
+      console.log('用户未登录');
     }
   } catch (e) {
     console.error('检查用户状态失败:', e);
@@ -676,39 +678,47 @@ function updateUserButton(isLoggedIn) {
 function showUserDropdown() {
   hideUserDropdown();
 
-  if (!currentUser) {
-    // 未登录，跳转到登录页面
-    chrome.tabs.create({ url: 'https://linux.do/login' });
-    return;
-  }
-
   const dropdown = document.createElement('div');
   dropdown.className = 'user-dropdown';
   dropdown.id = 'userDropdown';
 
-  const avatarUrl = currentUser.avatar_template
-    ? currentUser.avatar_template.replace('{size}', '40')
-    : '';
-
-  const trustLevel = currentUser.trust_level || 0;
-  const levelNames = { 0: '新用户', 1: '基本用户', 2: '成员', 3: '常任成员', 4: '领袖' };
-  const levelName = levelNames[trustLevel] || '用户';
-
-  dropdown.innerHTML = `
-    <div class="dropdown-header">
-      <img src="${avatarUrl}" alt="${currentUser.username}" onerror="this.style.display='none'">
-      <div class="user-info">
-        <span class="username">${escapeHtml(currentUser.username)}</span>
-        <span class="user-level">${levelName} · LV${trustLevel}</span>
+  if (!currentUser) {
+    // 未登录状态，显示登录提示
+    dropdown.innerHTML = `
+      <div class="dropdown-header" style="padding: 16px;">
+        <span class="username">未登录</span>
+        <span class="user-level" style="margin-top: 4px;">点击下方按钮登录</span>
       </div>
-    </div>
-    <div class="dropdown-item" onclick="openUserProfile()">
-      ${ICONS.profile} <span>我的主页</span>
-    </div>
-    <div class="dropdown-item logout" onclick="logout()">
-      ${ICONS.logout} <span>退出登录</span>
-    </div>
-  `;
+      <div class="dropdown-item" onclick="goToLogin()" style="color: var(--apple-blue);">
+        ${ICONS.user} <span>前往登录</span>
+      </div>
+    `;
+  } else {
+    // 已登录状态
+    const avatarUrl = currentUser.avatar_template
+      ? currentUser.avatar_template.replace('{size}', '40')
+      : '';
+
+    const trustLevel = currentUser.trust_level || 0;
+    const levelNames = { 0: '新用户', 1: '基本用户', 2: '成员', 3: '常任成员', 4: '领袖' };
+    const levelName = levelNames[trustLevel] || '用户';
+
+    dropdown.innerHTML = `
+      <div class="dropdown-header">
+        <img src="${avatarUrl}" alt="${currentUser.username}" onerror="this.style.display='none'">
+        <div class="user-info">
+          <span class="username">${escapeHtml(currentUser.username)}</span>
+          <span class="user-level">${levelName} · LV${trustLevel}</span>
+        </div>
+      </div>
+      <div class="dropdown-item" onclick="openUserProfile()">
+        ${ICONS.profile} <span>我的主页</span>
+      </div>
+      <div class="dropdown-item logout" onclick="logout()">
+        ${ICONS.logout} <span>退出登录</span>
+      </div>
+    `;
+  }
 
   document.body.appendChild(dropdown);
   userDropdownVisible = true;
@@ -718,6 +728,12 @@ function showUserDropdown() {
     document.addEventListener('click', handleDropdownOutsideClick);
   }, 0);
 }
+
+// 前往登录页面
+window.goToLogin = function() {
+  chrome.tabs.create({ url: 'https://linux.do/login' });
+  hideUserDropdown();
+};
 
 // 隐藏用户下拉菜单
 function hideUserDropdown() {
