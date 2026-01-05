@@ -193,7 +193,8 @@ async function checkUserStatus() {
 
 // 从 API 获取用户状态
 async function fetchUserFromAPI() {
-  const apiUrl = `${BASE_URL}/session/current.json`;
+  // 添加时间戳防止缓存
+  const apiUrl = `${BASE_URL}/session/current.json?_t=${Date.now()}`;
   console.log('[UserAuth] 请求 URL:', apiUrl);
 
   try {
@@ -206,22 +207,29 @@ async function fetchUserFromAPI() {
     // 构建 Cookie 请求头
     const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
+    // 强制注入 Discourse 必需的 Headers
+    const requestHeaders = {
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json',
+      'Discourse-Present': 'true',
+      'Cookie': cookieHeader,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0'
+    };
+
+    console.log('[UserAuth] === 最终发送的 Headers ===');
+    console.log('[UserAuth]', JSON.stringify(requestHeaders, null, 2));
+
     // 使用 Discourse 标准 API 获取当前登录用户
     const response = await fetch(apiUrl, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': cookieHeader,
-        'Origin': BASE_URL,
-        'Referer': `${BASE_URL}/`,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0'
-      }
+      headers: requestHeaders,
+      credentials: 'include'
     });
 
     console.log('[UserAuth] HTTP 状态码:', response.status);
+    console.log('[UserAuth] HTTP 状态文本:', response.statusText);
 
-    // 6. 处理 429 错误
+    // 处理 429 错误
     if (response.status === 429) {
       console.warn('[UserAuth] 触发速率限制 (429)');
       return { loggedIn: false, user: null, rateLimited: true, error: 'Too Many Requests' };
@@ -234,7 +242,8 @@ async function fetchUserFromAPI() {
 
     // 读取响应文本
     const responseText = await response.text();
-    console.log('[UserAuth] 原始响应 (前300字符):', responseText.substring(0, 300));
+    console.log('[UserAuth] 原始响应长度:', responseText.length, '字符');
+    console.log('[UserAuth] 原始响应内容:', responseText);
 
     // 解析 JSON
     let data;
@@ -245,12 +254,14 @@ async function fetchUserFromAPI() {
       return { loggedIn: false, user: null, error: 'JSON解析失败' };
     }
 
-    // 7. 判断逻辑：必须有 current_user 字段且不为 null
+    // 判断逻辑：必须有 current_user 字段且不为 null
     if (data.current_user !== null && data.current_user !== undefined) {
       console.log('[UserAuth] 已登录，用户:', data.current_user.username);
+      console.log('[UserAuth] 用户详细信息:', JSON.stringify(data.current_user, null, 2));
       return { loggedIn: true, user: data.current_user };
     } else {
-      console.log('[UserAuth] 未登录');
+      console.log('[UserAuth] 未登录 (current_user 为 null/undefined)');
+      console.log('[UserAuth] 响应中的所有键:', Object.keys(data));
       return { loggedIn: false, user: null };
     }
   } catch (error) {
