@@ -8,7 +8,8 @@
     "alarms",
     "storage",
     "notifications",
-    "action"
+    "action",
+    "cookies"
   ],
   "host_permissions": [
     "https://linux.do/*"

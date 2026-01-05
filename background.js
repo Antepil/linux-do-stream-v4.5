@@ -81,9 +81,11 @@ async function fetchWithRetry(endpoint, retries = 2) {
       headers: {
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'X-Requested-With': 'XMLHttpRequest',
+        'Origin': BASE_URL,
+        'Referer': `${BASE_URL}/`,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
       },
-      credentials: 'include'
+      credentials: 'omit'
     });
 
     if (!response.ok) {
@@ -104,10 +106,11 @@ async function fetchWithRetry(endpoint, retries = 2) {
       topics = data;
     }
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       topics,
-      users: data.users // 包含用户信息以提取信任等级
+      users: data.users, // 包含用户信息以提取信任等级
+      current_user: data.current_user // 包含当前用户信息
     };
   } catch (error) {
     console.error(`抓取失败 [${jsonUrl}]:`, error);
@@ -123,43 +126,20 @@ chrome.action.onClicked.addListener(async (tab) => {
 // 检查用户登录状态
 async function checkUserStatus() {
   try {
-    // 方法1: 尝试从 /latest.json 获取当前用户信息
-    const latestResponse = await fetch(`${BASE_URL}/latest.json`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'include'
-    });
+    // 直接调用 latest.json 获取当前用户信息
+    const result = await fetchWithRetry('/latest.json', 1);
 
-    if (latestResponse.ok) {
-      const latestData = await latestResponse.json();
-      // Discourse 在 latest.json 中返回当前用户信息
-      if (latestData.current_user && latestData.current_user.id) {
-        return { loggedIn: true, user: latestData.current_user };
-      }
+    if (result.success && result.current_user && result.current_user.id) {
+      return { loggedIn: true, user: result.current_user };
     }
 
-    // 方法2: 尝试 /session.json 端点
-    try {
-      const sessionResponse = await fetch(`${BASE_URL}/session.json`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        credentials: 'include'
-      });
-
-      if (sessionResponse.ok) {
-        const sessionData = await sessionResponse.json();
-        if (sessionData.current_user) {
-          return { loggedIn: true, user: sessionData.current_user };
-        }
+    // 备选：从 users 数组中查找管理员或当前用户
+    if (result.success && result.users && result.users.length > 0) {
+      // Discourse 登录用户通常 trust_level > 0
+      const loggedInUser = result.users.find(u => u.trust_level > 0 || u.admin);
+      if (loggedInUser) {
+        return { loggedIn: true, user: loggedInUser };
       }
-    } catch (e) {
-      // 忽略错误
     }
 
     return { loggedIn: false, user: null };
