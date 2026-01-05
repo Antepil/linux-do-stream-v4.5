@@ -124,14 +124,20 @@ chrome.action.onClicked.addListener(async (tab) => {
 // 检查用户登录状态 - 使用 Discourse 标准 API
 async function checkUserStatus() {
   try {
+    // 获取 linux.do 的所有 Cookie
+    const cookies = await chrome.cookies.getAll({ url: BASE_URL });
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
     // 使用 Discourse 标准 API 获取当前登录用户
     const response = await fetch(`${BASE_URL}/session/current.json`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'include'
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookieHeader,
+        'Origin': BASE_URL,
+        'Referer': `${BASE_URL}/`
+      }
     });
 
     if (!response.ok) {
@@ -146,12 +152,14 @@ async function checkUserStatus() {
 
     // Discourse 返回 { current_user: user_object } 或 { error: string }
     if (data.current_user && data.current_user.id) {
+      console.log('[UserAuth] 检测到已登录用户:', data.current_user.username);
       return { loggedIn: true, user: data.current_user };
     }
 
+    console.log('[UserAuth] 未检测到登录状态');
     return { loggedIn: false, user: null };
   } catch (error) {
-    console.error('检查用户状态失败:', error);
+    console.error('[UserAuth] 检查用户状态失败:', error);
     return { loggedIn: false, user: null };
   }
 }

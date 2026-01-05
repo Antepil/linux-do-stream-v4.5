@@ -689,7 +689,7 @@ function showUserDropdown() {
         <span class="username">未登录</span>
         <span class="user-level" style="margin-top: 4px;">点击下方按钮登录</span>
       </div>
-      <div class="dropdown-item" onclick="goToLogin()" style="color: var(--apple-blue);">
+      <div class="dropdown-item" data-action="login" style="color: var(--apple-blue);">
         ${ICONS.user} <span>前往登录</span>
       </div>
     `;
@@ -711,10 +711,10 @@ function showUserDropdown() {
           <span class="user-level">${levelName} · LV${trustLevel}</span>
         </div>
       </div>
-      <div class="dropdown-item" onclick="openUserProfile()">
+      <div class="dropdown-item" data-action="profile">
         ${ICONS.profile} <span>我的主页</span>
       </div>
-      <div class="dropdown-item logout" onclick="logout()">
+      <div class="dropdown-item logout" data-action="logout">
         ${ICONS.logout} <span>退出登录</span>
       </div>
     `;
@@ -723,17 +723,46 @@ function showUserDropdown() {
   document.body.appendChild(dropdown);
   userDropdownVisible = true;
 
+  // 使用事件委托绑定点击事件
+  dropdown.onclick = handleDropdownClick;
+
   // 点击其他地方关闭下拉菜单
   setTimeout(() => {
     document.addEventListener('click', handleDropdownOutsideClick);
   }, 0);
 }
 
-// 前往登录页面
-window.goToLogin = function() {
-  chrome.tabs.create({ url: 'https://linux.do/login' });
+// 处理下拉菜单点击事件
+function handleDropdownClick(e) {
+  const item = e.target.closest('.dropdown-item');
+  if (!item) return;
+
+  const action = item.dataset.action;
   hideUserDropdown();
-};
+
+  switch (action) {
+    case 'login':
+      chrome.tabs.create({ url: 'https://linux.do/login' });
+      break;
+    case 'profile':
+      if (currentUser) {
+        chrome.tabs.create({ url: `https://linux.do/u/${currentUser.username}` });
+      }
+      break;
+    case 'logout':
+      doLogout();
+      break;
+  }
+}
+
+// 执行退出登录
+function doLogout() {
+  chrome.runtime.sendMessage({ type: 'LOGOUT' });
+  currentUser = null;
+  updateUserButton(false);
+  // 刷新页面以更新状态
+  location.reload();
+}
 
 // 隐藏用户下拉菜单
 function hideUserDropdown() {
@@ -752,24 +781,6 @@ function handleDropdownOutsideClick(e) {
     hideUserDropdown();
   }
 }
-
-// 打开用户主页
-window.openUserProfile = function() {
-  if (currentUser) {
-    chrome.tabs.create({ url: `https://linux.do/u/${currentUser.username}` });
-  }
-  hideUserDropdown();
-};
-
-// 退出登录
-window.logout = function() {
-  chrome.runtime.sendMessage({ type: 'LOGOUT' });
-  currentUser = null;
-  updateUserButton(false);
-  hideUserDropdown();
-  // 刷新页面以更新状态
-  location.reload();
-};
 
 // 用户按钮点击事件在 bindEvents 中绑定
 
