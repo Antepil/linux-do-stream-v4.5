@@ -130,7 +130,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // 配置常量
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
-const RATE_LIMIT_COOLDOWN = 60 * 1000; // 429冷却时间：1分钟
+const RATE_LIMIT_COOLDOWN = 5 * 1000; // 429冷却时间：5秒（测试用）
 
 // 缓存键名
 const CACHE_KEYS = {
@@ -207,13 +207,12 @@ async function fetchUserFromAPI() {
     // 构建 Cookie 请求头
     const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    // 强制注入 Discourse 必需的 Headers
+    // 强制注入 Discourse 必需的 Headers（不设置 User-Agent，让浏览器自动发送）
     const requestHeaders = {
       'X-Requested-With': 'XMLHttpRequest',
       'Accept': 'application/json',
       'Discourse-Present': 'true',
-      'Cookie': cookieHeader,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0'
+      'Cookie': cookieHeader
     };
 
     console.log('[UserAuth] === 最终发送的 Headers ===');
