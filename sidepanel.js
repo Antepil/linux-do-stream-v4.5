@@ -18,6 +18,55 @@ const userBtn = document.getElementById('userBtn');
 // 设置面板元素
 const settingsBtn = document.getElementById('settingsBtn');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+
+// Toast 提示容器
+function showToast(message, duration = 3000) {
+  // 移除已存在的 toast
+  const existing = document.getElementById('toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'toast';
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 1000;
+    animation: toastFadeIn 0.3s ease;
+  `;
+
+  // 添加动画样式
+  if (!document.getElementById('toastStyle')) {
+    const style = document.createElement('style');
+    style.id = 'toastStyle';
+    style.textContent = `
+      @keyframes toastFadeIn {
+        from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+      @keyframes toastFadeOut {
+        from { opacity: 1; transform: translateX(-50%) translateY(0); }
+        to { opacity: 0; transform: translateX(-50%) translateY(10px); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.body.appendChild(toast);
+
+  // 自动消失
+  setTimeout(() => {
+    toast.style.animation = 'toastFadeOut 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
 const settingsPanel = document.getElementById('settingsPanel');
 const resetSettingsBtn = document.getElementById('resetSettingsBtn');
 
@@ -637,13 +686,26 @@ function getTrustBadge(level, isAdmin) {
 }
 
 // 检查用户登录状态
-async function checkUserStatus() {
+async function checkUserStatus(forceRefresh = false) {
   try {
+    // 如果强制刷新，先清除缓存
+    if (forceRefresh) {
+      await chrome.runtime.sendMessage({ type: 'CLEAR_USER_CACHE' });
+    }
+
     const res = await chrome.runtime.sendMessage({ type: 'CHECK_USER_STATUS' });
+
     if (res && res.loggedIn && res.user) {
       currentUser = res.user;
       updateUserButton(true);
       console.log('已登录用户:', currentUser.username);
+    } else if (res && res.rateLimited) {
+      // 限流状态
+      currentUser = null;
+      updateUserButton(false);
+      const retryAfter = res.retryAfter || 60;
+      showToast(`请求过于频繁，请 ${retryAfter} 秒后再试`);
+      console.log('用户状态请求被限流');
     } else {
       currentUser = null;
       updateUserButton(false);

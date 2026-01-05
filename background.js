@@ -31,6 +31,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 清除用户缓存（手动刷新时）
+  if (message.type === 'CLEAR_USER_CACHE') {
+    clearUserCache();
+    sendResponse({ success: true });
+    return true;
+  }
+
   // 退出登录
   if (message.type === 'LOGOUT') {
     logout().then(() => {
@@ -121,11 +128,72 @@ chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 });
 
-// 检查用户登录状态 - 使用 Discourse 标准 API
-async function checkUserStatus() {
-  const apiUrl = `${BASE_URL}/session/current.json`;
+// 配置常量
+const USER_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+const RATE_LIMIT_COOLDOWN = 60 * 1000; // 429冷却时间：1分钟
 
+// 缓存键名
+const CACHE_KEYS = {
+  USER_STATUS: 'cachedUserStatus',
+  RATE_LIMIT_UNTIL: 'rateLimitUntil'
+};
+
+// 检查用户登录状态 - 使用缓存和防封机制
+async function checkUserStatus() {
   console.log('[UserAuth] === 开始检查登录状态 ===');
+
+  const now = Date.now();
+
+  // 1. 检查是否在冷却期（429错误后）
+  const rateLimitData = await chrome.storage.local.get(CACHE_KEYS.RATE_LIMIT_UNTIL);
+  if (rateLimitData[CACHE_KEYS.RATE_LIMIT_UNTIL] && now < rateLimitData[CACHE_KEYS.RATE_LIMIT_UNTIL]) {
+    const remaining = Math.ceil((rateLimitData[CACHE_KEYS.RATE_LIMIT_UNTIL] - now) / 1000);
+    console.log('[UserAuth] 冷却期中，剩余', remaining, '秒');
+    return { loggedIn: false, user: null, rateLimited: true, retryAfter: remaining };
+  }
+
+  // 2. 尝试从缓存读取
+  const cachedData = await chrome.storage.local.get(CACHE_KEYS.USER_STATUS);
+  if (cachedData[CACHE_KEYS.USER_STATUS]) {
+    const cache = cachedData[CACHE_KEYS.USER_STATUS];
+    const cacheAge = now - cache.timestamp;
+
+    if (cacheAge < USER_CACHE_TTL && cache.user) {
+      console.log('[UserAuth] 使用缓存，缓存年龄:', Math.round(cacheAge / 1000), '秒');
+      return cache;
+    } else if (cacheAge < USER_CACHE_TTL && !cache.user) {
+      // 缓存显示未登录且未过期，直接返回
+      console.log('[UserAuth] 缓存显示未登录，缓存年龄:', Math.round(cacheAge / 1000), '秒');
+      return cache;
+    }
+    console.log('[UserAuth] 缓存已过期，需要重新请求');
+  }
+
+  // 3. 发起网络请求
+  console.log('[UserAuth] 发起网络请求...');
+  const result = await fetchUserFromAPI();
+
+  // 4. 保存结果到缓存
+  const cacheToSave = {
+    ...result,
+    timestamp: now
+  };
+  await chrome.storage.local.set({ [CACHE_KEYS.USER_STATUS]: cacheToSave });
+
+  // 5. 如果是 429 错误，设置冷却期
+  if (result.rateLimited) {
+    const cooldownUntil = now + RATE_LIMIT_COOLDOWN;
+    await chrome.storage.local.set({ [CACHE_KEYS.RATE_LIMIT_UNTIL]: cooldownUntil });
+    console.log('[UserAuth] 429错误，已设置冷却期到:', new Date(cooldownUntil).toLocaleTimeString());
+  }
+
+  console.log('[UserAuth] === 检查完成 ===');
+  return result;
+}
+
+// 从 API 获取用户状态
+async function fetchUserFromAPI() {
+  const apiUrl = `${BASE_URL}/session/current.json`;
   console.log('[UserAuth] 请求 URL:', apiUrl);
 
   try {
@@ -137,8 +205,6 @@ async function checkUserStatus() {
 
     // 构建 Cookie 请求头
     const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-    console.log('[UserAuth] 发起 fetch 请求...');
 
     // 使用 Discourse 标准 API 获取当前登录用户
     const response = await fetch(apiUrl, {
@@ -154,49 +220,49 @@ async function checkUserStatus() {
     });
 
     console.log('[UserAuth] HTTP 状态码:', response.status);
-    console.log('[UserAuth] HTTP 状态文本:', response.statusText);
 
-    // 读取响应文本（先不解析 JSON）
+    // 6. 处理 429 错误
+    if (response.status === 429) {
+      console.warn('[UserAuth] 触发速率限制 (429)');
+      return { loggedIn: false, user: null, rateLimited: true, error: 'Too Many Requests' };
+    }
+
+    if (!response.ok) {
+      console.error('[UserAuth] HTTP 错误:', response.status, response.statusText);
+      return { loggedIn: false, user: null, error: `HTTP ${response.status}` };
+    }
+
+    // 读取响应文本
     const responseText = await response.text();
-    console.log('[UserAuth] 原始响应长度:', responseText.length, '字符');
-    console.log('[UserAuth] 原始响应内容 (前500字符):', responseText.substring(0, 500));
+    console.log('[UserAuth] 原始响应 (前300字符):', responseText.substring(0, 300));
 
     // 解析 JSON
     let data;
     try {
       data = JSON.parse(responseText);
-      console.log('[UserAuth] JSON 解析成功');
-      console.log('[UserAuth] 响应对象键:', Object.keys(data));
     } catch (e) {
       console.error('[UserAuth] JSON 解析失败:', e);
       return { loggedIn: false, user: null, error: 'JSON解析失败' };
     }
 
-    // 详细检查 current_user 字段
-    console.log('[UserAuth] data.current_user 值:', data.current_user);
-    console.log('[UserAuth] data.current_user 类型:', typeof data.current_user);
-    console.log('[UserAuth] data.current_user 是否为 null:', data.current_user === null);
-
-    // 判断逻辑：必须有 current_user 字段且不为 null
+    // 7. 判断逻辑：必须有 current_user 字段且不为 null
     if (data.current_user !== null && data.current_user !== undefined) {
-      console.log('[UserAuth] current_user 存在，检测到已登录用户');
-      console.log('[UserAuth] 用户名:', data.current_user.username);
-      console.log('[UserAuth] 用户ID:', data.current_user.id);
-      console.log('[UserAuth] 信任等级:', data.current_user.trust_level);
-      console.log('[UserAuth] === 检查完成：已登录 ===');
+      console.log('[UserAuth] 已登录，用户:', data.current_user.username);
       return { loggedIn: true, user: data.current_user };
     } else {
-      console.log('[UserAuth] current_user 为 null 或 undefined，视为未登录');
-      console.log('[UserAuth] === 检查完成：未登录 ===');
+      console.log('[UserAuth] 未登录');
       return { loggedIn: false, user: null };
     }
   } catch (error) {
     console.error('[UserAuth] 请求异常:', error);
-    console.error('[UserAuth] 错误名称:', error.name);
-    console.error('[UserAuth] 错误消息:', error.message);
-    console.log('[UserAuth] === 检查完成：异常 ===');
     return { loggedIn: false, user: null, error: error.message };
   }
+}
+
+// 清除用户缓存（用户手动刷新时调用）
+async function clearUserCache() {
+  await chrome.storage.local.remove([CACHE_KEYS.USER_STATUS, CACHE_KEYS.RATE_LIMIT_UNTIL]);
+  console.log('[UserAuth] 缓存已清除');
 }
 
 // 退出登录
