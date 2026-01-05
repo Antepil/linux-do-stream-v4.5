@@ -12,6 +12,9 @@ const subCategoryFilter = document.getElementById('subCategoryFilter');
 const sortFilter = document.getElementById('sortFilter');
 const refreshProgress = document.getElementById('refreshProgress');
 
+// 用户相关元素
+const userBtn = document.getElementById('userBtn');
+
 // 设置面板元素
 const settingsBtn = document.getElementById('settingsBtn');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
@@ -56,6 +59,8 @@ let autoRefreshEnabled = true;
 let progressTimer = null;
 let currentProgress = 0;
 let config = { ...DEFAULT_CONFIG };
+let currentUser = null; // 当前登录用户信息
+let userDropdownVisible = false;
 
 // 板块配置
 const CATEGORIES = [
@@ -79,14 +84,16 @@ const ICONS = {
   timer: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>',
   posts: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
   views: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
-  user: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
+  user: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
+  profile: '<svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
+  logout: '<svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>'
 };
 
 async function init() {
   const result = await chrome.storage.local.get(['readTopicIds', 'userSettings', 'config']);
   if (result.readTopicIds) readTopicIds = new Set(result.readTopicIds);
   if (result.config) config = { ...config, ...result.config };
-  
+
   fillSubCategories();
   renderCategoryBlockList();
   loadConfigToUI();
@@ -105,11 +112,15 @@ async function init() {
   refreshBtn.innerHTML = ICONS.refresh;
   autoRefreshToggle.innerHTML = ICONS.timer;
 
+  // 初始化用户状态
+  userBtn.innerHTML = ICONS.user;
+  await checkUserStatus();
+
   bindEvents();
   showSkeleton();
   await loadTopics();
   if (autoRefreshEnabled && config.pollingInterval > 0) startAutoRefresh();
-  
+
   initContextMenu();
 }
 
@@ -213,7 +224,17 @@ function bindEvents() {
   categoryFilter.onchange = () => { toggleSubCategoryVisibility(); handleManualRefresh(); saveSettings(); };
   subCategoryFilter.onchange = () => { handleManualRefresh(); saveSettings(); };
   sortFilter.onchange = () => { renderTopics(); saveSettings(); };
-  
+
+  // 用户按钮点击事件
+  userBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (userDropdownVisible) {
+      hideUserDropdown();
+    } else {
+      showUserDropdown();
+    }
+  };
+
   settingsBtn.onclick = () => settingsPanel.classList.add('open');
   closeSettingsBtn.onclick = () => settingsPanel.classList.remove('open');
   
@@ -614,5 +635,126 @@ function getTrustBadge(level, isAdmin) {
     <svg viewBox="0 0 24 24">${badge.icon}</svg>
   </span>`;
 }
+
+// 检查用户登录状态
+async function checkUserStatus() {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'CHECK_USER_STATUS' });
+    if (res && res.loggedIn) {
+      currentUser = res.user;
+      updateUserButton(true);
+    } else {
+      currentUser = null;
+      updateUserButton(false);
+    }
+  } catch (e) {
+    console.error('检查用户状态失败:', e);
+    currentUser = null;
+    updateUserButton(false);
+  }
+}
+
+// 更新用户按钮显示
+function updateUserButton(isLoggedIn) {
+  if (isLoggedIn && currentUser) {
+    // 已登录，显示头像
+    const avatarUrl = currentUser.avatar_template
+      ? currentUser.avatar_template.replace('{size}', '40')
+      : '';
+    userBtn.innerHTML = avatarUrl
+      ? `<img src="${avatarUrl}" class="user-avatar" alt="${currentUser.username}">`
+      : ICONS.user;
+    userBtn.classList.add('logged-in');
+  } else {
+    // 未登录，显示用户图标
+    userBtn.innerHTML = ICONS.user;
+    userBtn.classList.remove('logged-in');
+  }
+}
+
+// 显示用户下拉菜单
+function showUserDropdown() {
+  hideUserDropdown();
+
+  if (!currentUser) {
+    // 未登录，跳转到登录页面
+    chrome.tabs.create({ url: 'https://linux.do/login' });
+    return;
+  }
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'user-dropdown';
+  dropdown.id = 'userDropdown';
+
+  const avatarUrl = currentUser.avatar_template
+    ? currentUser.avatar_template.replace('{size}', '40')
+    : '';
+
+  const trustLevel = currentUser.trust_level || 0;
+  const levelNames = { 0: '新用户', 1: '基本用户', 2: '成员', 3: '常任成员', 4: '领袖' };
+  const levelName = levelNames[trustLevel] || '用户';
+
+  dropdown.innerHTML = `
+    <div class="dropdown-header">
+      <img src="${avatarUrl}" alt="${currentUser.username}" onerror="this.style.display='none'">
+      <div class="user-info">
+        <span class="username">${escapeHtml(currentUser.username)}</span>
+        <span class="user-level">${levelName} · LV${trustLevel}</span>
+      </div>
+    </div>
+    <div class="dropdown-item" onclick="openUserProfile()">
+      ${ICONS.profile} <span>我的主页</span>
+    </div>
+    <div class="dropdown-item logout" onclick="logout()">
+      ${ICONS.logout} <span>退出登录</span>
+    </div>
+  `;
+
+  document.body.appendChild(dropdown);
+  userDropdownVisible = true;
+
+  // 点击其他地方关闭下拉菜单
+  setTimeout(() => {
+    document.addEventListener('click', handleDropdownOutsideClick);
+  }, 0);
+}
+
+// 隐藏用户下拉菜单
+function hideUserDropdown() {
+  const dropdown = document.getElementById('userDropdown');
+  if (dropdown) {
+    dropdown.remove();
+  }
+  userDropdownVisible = false;
+  document.removeEventListener('click', handleDropdownOutsideClick);
+}
+
+// 处理点击外部关闭下拉菜单
+function handleDropdownOutsideClick(e) {
+  const dropdown = document.getElementById('userDropdown');
+  if (dropdown && !dropdown.contains(e.target) && e.target !== userBtn && !userBtn.contains(e.target)) {
+    hideUserDropdown();
+  }
+}
+
+// 打开用户主页
+window.openUserProfile = function() {
+  if (currentUser) {
+    chrome.tabs.create({ url: `https://linux.do/u/${currentUser.username}` });
+  }
+  hideUserDropdown();
+};
+
+// 退出登录
+window.logout = function() {
+  chrome.runtime.sendMessage({ type: 'LOGOUT' });
+  currentUser = null;
+  updateUserButton(false);
+  hideUserDropdown();
+  // 刷新页面以更新状态
+  location.reload();
+};
+
+// 用户按钮点击事件在 bindEvents 中绑定
 
 init();

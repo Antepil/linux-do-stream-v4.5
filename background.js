@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fetchWithRetry(message.endpoint).then(sendResponse);
     return true;
   }
-  
+
   if (message.type === 'UPDATE_BADGE') {
     updateBadge(message.count);
     return true;
@@ -21,6 +21,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       title: 'Linux.do 强提醒',
       message: message.text,
       priority: 2
+    });
+    return true;
+  }
+
+  // 检查用户登录状态
+  if (message.type === 'CHECK_USER_STATUS') {
+    checkUserStatus().then(sendResponse);
+    return true;
+  }
+
+  // 退出登录
+  if (message.type === 'LOGOUT') {
+    logout().then(() => {
+      sendResponse({ success: true });
     });
     return true;
   }
@@ -105,3 +119,55 @@ async function fetchWithRetry(endpoint, retries = 2) {
 chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 });
+
+// 检查用户登录状态
+async function checkUserStatus() {
+  try {
+    // 调用 Discourse 的 /users/[username] 端点来获取当前用户信息
+    const response = await fetch(`${BASE_URL}/users/${window.currentUser || 'about'}.json`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      return { loggedIn: false, user: null };
+    }
+
+    const data = await response.json();
+
+    // Discourse 返回当前用户信息的结构
+    if (data.user) {
+      return { loggedIn: true, user: data.user };
+    }
+
+    // 尝试从 other_accounts 或其他字段获取
+    if (data.users && data.users.length > 0) {
+      return { loggedIn: true, user: data.users[0] };
+    }
+
+    return { loggedIn: false, user: null };
+  } catch (error) {
+    console.error('检查用户状态失败:', error);
+    return { loggedIn: false, user: null };
+  }
+}
+
+// 退出登录
+async function logout() {
+  try {
+    await fetch(`${BASE_URL}/logout`, {
+      method: 'GET',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include'
+    });
+    console.log('退出登录成功');
+  } catch (error) {
+    console.error('退出登录失败:', error);
+  }
+}

@@ -82,3 +82,8 @@ CSS variables in `:root` and `[data-theme="dark"]` (styles.css:3-44):
 - Message passing pattern: sidepanel → background via `chrome.runtime.sendMessage`
 - Animations use `requestAnimationFrame` for 60FPS performance
 - Progress bar updates every second based on `pollingInterval` setting
+
+## Git Authentication Status
+- **Authentication:** The local environment is already authenticated with GitHub via system credentials. 
+- **Action:** You can run `git push` directly without asking for credentials or tokens.
+- **Security:** NEVER ask for or attempt to store GitHub tokens in any file.
