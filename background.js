@@ -123,44 +123,79 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // 检查用户登录状态 - 使用 Discourse 标准 API
 async function checkUserStatus() {
+  const apiUrl = `${BASE_URL}/session/current.json`;
+
+  console.log('[UserAuth] === 开始检查登录状态 ===');
+  console.log('[UserAuth] 请求 URL:', apiUrl);
+
   try {
     // 获取 linux.do 的所有 Cookie
     const cookies = await chrome.cookies.getAll({ url: BASE_URL });
+    const cookieNames = cookies.map(c => c.name);
+    console.log('[UserAuth] 获取到 Cookie 数量:', cookies.length);
+    console.log('[UserAuth] Cookie 名称:', cookieNames.join(', '));
+
+    // 构建 Cookie 请求头
     const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
+    console.log('[UserAuth] 发起 fetch 请求...');
+
     // 使用 Discourse 标准 API 获取当前登录用户
-    const response = await fetch(`${BASE_URL}/session/current.json`, {
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'X-Requested-With': 'XMLHttpRequest',
         'Cookie': cookieHeader,
         'Origin': BASE_URL,
-        'Referer': `${BASE_URL}/`
+        'Referer': `${BASE_URL}/`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0'
       }
     });
 
-    if (!response.ok) {
-      if (response.status === 403 || response.status === 401) {
-        // 未登录
-        return { loggedIn: false, user: null };
-      }
-      throw new Error(`HTTP ${response.status}`);
+    console.log('[UserAuth] HTTP 状态码:', response.status);
+    console.log('[UserAuth] HTTP 状态文本:', response.statusText);
+
+    // 读取响应文本（先不解析 JSON）
+    const responseText = await response.text();
+    console.log('[UserAuth] 原始响应长度:', responseText.length, '字符');
+    console.log('[UserAuth] 原始响应内容 (前500字符):', responseText.substring(0, 500));
+
+    // 解析 JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+      console.log('[UserAuth] JSON 解析成功');
+      console.log('[UserAuth] 响应对象键:', Object.keys(data));
+    } catch (e) {
+      console.error('[UserAuth] JSON 解析失败:', e);
+      return { loggedIn: false, user: null, error: 'JSON解析失败' };
     }
 
-    const data = await response.json();
+    // 详细检查 current_user 字段
+    console.log('[UserAuth] data.current_user 值:', data.current_user);
+    console.log('[UserAuth] data.current_user 类型:', typeof data.current_user);
+    console.log('[UserAuth] data.current_user 是否为 null:', data.current_user === null);
 
-    // Discourse 返回 { current_user: user_object } 或 { error: string }
-    if (data.current_user && data.current_user.id) {
-      console.log('[UserAuth] 检测到已登录用户:', data.current_user.username);
+    // 判断逻辑：必须有 current_user 字段且不为 null
+    if (data.current_user !== null && data.current_user !== undefined) {
+      console.log('[UserAuth] current_user 存在，检测到已登录用户');
+      console.log('[UserAuth] 用户名:', data.current_user.username);
+      console.log('[UserAuth] 用户ID:', data.current_user.id);
+      console.log('[UserAuth] 信任等级:', data.current_user.trust_level);
+      console.log('[UserAuth] === 检查完成：已登录 ===');
       return { loggedIn: true, user: data.current_user };
+    } else {
+      console.log('[UserAuth] current_user 为 null 或 undefined，视为未登录');
+      console.log('[UserAuth] === 检查完成：未登录 ===');
+      return { loggedIn: false, user: null };
     }
-
-    console.log('[UserAuth] 未检测到登录状态');
-    return { loggedIn: false, user: null };
   } catch (error) {
-    console.error('[UserAuth] 检查用户状态失败:', error);
-    return { loggedIn: false, user: null };
+    console.error('[UserAuth] 请求异常:', error);
+    console.error('[UserAuth] 错误名称:', error.name);
+    console.error('[UserAuth] 错误消息:', error.message);
+    console.log('[UserAuth] === 检查完成：异常 ===');
+    return { loggedIn: false, user: null, error: error.message };
   }
 }
 
