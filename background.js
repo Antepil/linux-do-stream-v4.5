@@ -123,8 +123,8 @@ chrome.action.onClicked.addListener(async (tab) => {
 // 检查用户登录状态
 async function checkUserStatus() {
   try {
-    // 调用 Discourse 的 /users/[username] 端点来获取当前用户信息
-    const response = await fetch(`${BASE_URL}/users/${window.currentUser || 'about'}.json`, {
+    // 方法1: 尝试从 /latest.json 获取当前用户信息
+    const latestResponse = await fetch(`${BASE_URL}/latest.json`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -133,20 +133,33 @@ async function checkUserStatus() {
       credentials: 'include'
     });
 
-    if (!response.ok) {
-      return { loggedIn: false, user: null };
+    if (latestResponse.ok) {
+      const latestData = await latestResponse.json();
+      // Discourse 在 latest.json 中返回当前用户信息
+      if (latestData.current_user && latestData.current_user.id) {
+        return { loggedIn: true, user: latestData.current_user };
+      }
     }
 
-    const data = await response.json();
+    // 方法2: 尝试 /session.json 端点
+    try {
+      const sessionResponse = await fetch(`${BASE_URL}/session.json`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'include'
+      });
 
-    // Discourse 返回当前用户信息的结构
-    if (data.user) {
-      return { loggedIn: true, user: data.user };
-    }
-
-    // 尝试从 other_accounts 或其他字段获取
-    if (data.users && data.users.length > 0) {
-      return { loggedIn: true, user: data.users[0] };
+      if (sessionResponse.ok) {
+        const sessionData = await sessionResponse.json();
+        if (sessionData.current_user) {
+          return { loggedIn: true, user: sessionData.current_user };
+        }
+      }
+    } catch (e) {
+      // 忽略错误
     }
 
     return { loggedIn: false, user: null };
