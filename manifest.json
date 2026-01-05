@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Linux.do 主题流",
+  "version": "4.5.0",
+  "description": "等级外显修复版 Linux.do 侧边栏插件，深度适配信任等级显示",
+  "permissions": [
+    "sidePanel",
+    "alarms",
+    "storage",
+    "notifications",
+    "action"
+  ],
+  "host_permissions": [
+    "https://linux.do/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "打开 Linux.do 主题流"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://linux.do/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
