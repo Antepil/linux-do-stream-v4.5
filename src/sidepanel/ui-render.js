@@ -25,6 +25,10 @@ export const CATEGORIES = [
   { id: 92, name: '网络记忆', slug: 'feeds', color: 'tag-news' },
   { id: 36, name: '福利羊毛', slug: 'welfare', color: 'tag-resource' },
   { id: 11, name: '搞七捻三', slug: 'gossip', color: 'tag-life' },
+  { id: 46, name: '扬帆起航', slug: 'startup', color: 'tag-dev' },
+  { id: 45, name: '深海幽域', slug: 'muted', color: 'tag-life' },
+  { id: 106, name: '积分乐园', slug: 'credit', color: 'tag-resource' },
+  { id: 102, name: '社区孵化', slug: 'incubator', color: 'tag-dev' },
   { id: 2, name: '运营反馈', slug: 'feedback', color: 'tag-default' }
 ];
 
