@@ -22,33 +22,69 @@ export async function fetchWithRetry(endpoint, retries = 2) {
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
   const jsonUrl = url.includes('.json') ? url : `${url}.json`;
 
+  console.log(`[API] 请求开始: ${jsonUrl}`);
+
   try {
+    console.log(`[API] 发起 fetch 请求...`);
     const response = await fetch(jsonUrl, {
       method: 'GET',
       headers: {
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'X-Requested-With': 'XMLHttpRequest',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        'User-Agent': navigator.userAgent
       },
       credentials: 'include'
     });
 
+    console.log(`[API] 响应状态: ${response.status} ${response.statusText}`);
+
     if (!response.ok) {
       if (response.status === 403 && retries > 0) {
+        console.log(`[API] 403 错误，剩余重试次数: ${retries}`);
         return fetchWithRetry(url, retries - 1);
+      }
+      if (response.status === 429) {
+        console.warn('[API] 触发速率限制 (429)');
+        throw new Error('Too Many Requests (429)');
       }
       throw new Error(`HTTP ${response.status}`);
     }
 
     const data = await response.json();
+    console.log(`[API] 原始响应数据结构:`, {
+      hasTopicList: !!data.topic_list,
+      hasTopics: !!data.topics,
+      isArray: Array.isArray(data),
+      topicListKeys: data.topic_list ? Object.keys(data.topic_list) : [],
+      usersCount: data.users?.length || 0,
+      currentUser: data.current_user
+    });
+
     let topics = [];
 
     if (data.topic_list && data.topic_list.topics) {
+      console.log(`[API] 从 topic_list.topics 提取数据，共 ${data.topic_list.topics.length} 条`);
       topics = data.topic_list.topics;
     } else if (data.topics) {
+      console.log(`[API] 从 topics 提取数据，共 ${data.topics.length} 条`);
       topics = data.topics;
     } else if (Array.isArray(data)) {
+      console.log(`[API] 从根数组提取数据，共 ${data.length} 条`);
       topics = data;
+    } else {
+      console.warn('[API] 无法识别的数据结构:', data);
+    }
+
+    // 打印第一条数据示例用于调试
+    if (topics.length > 0) {
+      console.log('[API] 第一条数据示例:', {
+        id: topics[0].id,
+        title: topics[0].title,
+        category_id: topics[0].category_id,
+        posters: topics[0].posters?.length || 0
+      });
+    } else {
+      console.warn('[API] 警告: topics 数组为空');
     }
 
     return {
@@ -58,7 +94,7 @@ export async function fetchWithRetry(endpoint, retries = 2) {
       current_user: data.current_user
     };
   } catch (error) {
-    console.error(`API 请求失败 [${jsonUrl}]:`, error);
+    console.error(`[API] 请求失败 [${jsonUrl}]:`, error);
     return { success: false, error: error.message, topics: [], users: [] };
   }
 }

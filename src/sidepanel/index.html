@@ -191,17 +191,8 @@
   <!-- 自定义右键菜单 -->
   <div id="customContextMenu" class="custom-menu"></div>
 
-  <!-- 全局工具函数（供右键菜单调用） -->
-  <script>
-    window.copyText = async function(text) {
-      await navigator.clipboard.writeText(text);
-    };
-
-    window.toggleRead = function(id) {
-      // 触发自定义事件，由 main.js 处理
-      window.dispatchEvent(new CustomEvent('toggleRead', { detail: { id } }));
-    };
-  </script>
+  <!-- 全局工具函数 -->
+  <script src="utils.js"></script>
 
   <!-- 主模块 -->
   <script type="module" src="main.js"></script>

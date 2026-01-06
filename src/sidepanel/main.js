@@ -146,24 +146,49 @@ async function checkAndUpdateUserStatus() {
 async function loadTopics() {
   try {
     setLoading(true);
+    console.log('[Main] 开始加载主题...');
     const res = await fetchTopics(categoryFilter.value, subCategoryFilter.value, CATEGORIES);
+    console.log('[Main] API 返回结果:', { success: res.success, topicsCount: res.topics?.length, error: res.error });
 
-    if (res && res.success && res.topics) {
+    if (res && res.success && res.topics && res.topics.length > 0) {
       // 建立用户映射
       if (res.users) {
         window.allUsersMap = new Map(res.users.map(u => [u.id, u]));
+        console.log('[Main] 用户映射已建立:', window.allUsersMap.size, '个用户');
+      } else {
+        console.warn('[Main] 警告: API 未返回 users 数组');
       }
 
       allTopics = res.topics;
       checkNotifications(allTopics);
       renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
       updateTopicCount(allTopics.length);
+      console.log('[Main] 渲染完成，共', allTopics.length, '条主题');
+    } else if (res && res.success && res.topics && res.topics.length === 0) {
+      console.warn('[Main] 主题列表为空');
+      topicList.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无内容 (可能被过滤)</div>`;
+      updateTopicCount(0);
     } else {
-      throw new Error(res.error || '获取数据失败');
+      throw new Error(res?.error || '获取数据失败');
     }
   } catch (e) {
-    console.error('加载失败:', e);
-    topicList.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-tertiary)">加载失败: ${e.message}</div>`;
+    console.error('[Main] 加载失败:', e);
+    // 显示错误信息和重试按钮
+    topicList.innerHTML = `
+      <div style="text-align:center;padding:40px;color:var(--text-tertiary)">
+        <div style="margin-bottom:16px">加载失败: ${e.message || '网络错误'}</div>
+        <button id="retryBtn" style="
+          background:var(--primary);
+          color:white;
+          border:none;
+          padding:8px 24px;
+          border-radius:8px;
+          cursor:pointer;
+          font-size:14px;
+        ">点击重试</button>
+      </div>
+    `;
+    document.getElementById('retryBtn')?.addEventListener('click', handleManualRefresh);
   } finally {
     setLoading(false);
   }
@@ -241,7 +266,7 @@ function handleCategoryToggle(slug) {
   } else {
     config.blockCategories.push(slug);
   }
-  saveConfig();
+  updateConfigFromUI();
   renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
 }
 
@@ -275,7 +300,7 @@ function bindEvents() {
   resetSettingsBtn.onclick = () => {
     if (confirm('确定要恢复默认设置吗？所有个性化配置将被重置。')) {
       config = { ...defaultConfig };
-      saveConfig();
+      updateConfigFromUI();
       loadConfigToUI();
       applyAppearance(config);
       renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
@@ -285,11 +310,11 @@ function bindEvents() {
 
   // 设置变更
   [pollingInterval, lowDataMode, keywordBlacklist, qualityFilter, hoverPreview, readStatusAction, showBadge, notifyKeywords, fontSize, compactMode].forEach(el => {
-    el.onchange = saveConfig;
+    el.onchange = updateConfigFromUI;
   });
 
   document.querySelectorAll('input[name="clickBehavior"], input[name="themeMode"]').forEach(el => {
-    el.onchange = saveConfig;
+    el.onchange = updateConfigFromUI;
   });
 
   // 点击其他地方关闭右键菜单
@@ -370,7 +395,7 @@ function loadConfigToUI() {
 /**
  * 保存配置
  */
-function saveConfig() {
+function updateConfigFromUI() {
   const syncReadStatus = document.getElementById('syncReadStatus');
   config = {
     ...config,

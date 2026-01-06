@@ -66,8 +66,15 @@ export function showSkeleton() {
  * @param {Function} onContextMenu - 右键菜单回调
  */
 export function renderTopics(topics, config, readTopicIds, usersMap, onTopicClick, onContextMenu) {
+  console.log('[Render] renderTopics() 被调用，原始 topics 数量:', topics?.length);
+  console.log('[Render] config.blockCategories:', config.blockCategories);
+  console.log('[Render] readTopicIds:', Array.from(readTopicIds));
+
   const filtered = applyFilters(topics, config);
+  console.log('[Render] 过滤后数量:', filtered.length);
+
   const sorted = applySorting(filtered, config);
+  console.log('[Render] 排序后数量:', sorted.length);
 
   // 更新角标
   if (config.showBadge) {
@@ -78,9 +85,13 @@ export function renderTopics(topics, config, readTopicIds, usersMap, onTopicClic
   }
 
   if (sorted.length === 0) {
+    console.log('[Render] 警告：排序后列表为空，显示"暂无内容"');
+    console.log('[Render] 原始数据示例:', topics?.[0]);
     elements.topicList.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无内容 (可能被过滤)</div>';
     return;
   }
+
+  console.log('[Render] 开始渲染', sorted.length, '条主题');
 
   const fragment = document.createDocumentFragment();
   sorted.forEach(topic => {
@@ -90,6 +101,7 @@ export function renderTopics(topics, config, readTopicIds, usersMap, onTopicClic
   requestAnimationFrame(() => {
     elements.topicList.innerHTML = '';
     elements.topicList.appendChild(fragment);
+    console.log('[Render] 渲染完成，DOM 已更新');
   });
 }
 
@@ -176,31 +188,49 @@ function createTopicElement(topic, config, readTopicIds, usersMap, onTopicClick,
  */
 function applyFilters(topics, config) {
   let res = [...topics];
+  console.log('[Filter] 原始数量:', res.length);
 
   // 分类屏蔽
   if (config.blockCategories && config.blockCategories.length > 0) {
+    console.log('[Filter] 应用分类屏蔽:', config.blockCategories);
+    const before = res.length;
     res = res.filter(t => {
       const cat = CATEGORIES.find(c => c.id == t.category_id);
-      return !cat || !config.blockCategories.includes(cat.slug);
+      const shouldKeep = !cat || !config.blockCategories.includes(cat.slug);
+      return shouldKeep;
     });
+    console.log('[Filter] 分类过滤后:', before, '->', res.length);
   }
 
   // 关键词黑名单
   if (config.keywordBlacklist) {
+    console.log('[Filter] 应用关键词黑名单:', config.keywordBlacklist);
+    const before = res.length;
     const black = config.keywordBlacklist.split(',').map(k => k.trim().toLowerCase());
     res = res.filter(t => !black.some(k => t.title.toLowerCase().includes(k)));
+    console.log('[Filter] 关键词过滤后:', before, '->', res.length);
   }
 
   // 高热度过滤
   if (config.qualityFilter) {
+    console.log('[Filter] 应用高热度过滤 (posts_count > 10)');
+    const before = res.length;
     res = res.filter(t => t.posts_count > 10);
+    console.log('[Filter] 热度过滤后:', before, '->', res.length);
   }
 
   // 已读隐藏
   if (config.readStatusAction === 'hide') {
+    console.log('[Filter] 应用已读隐藏');
+    const before = res.length;
     res = res.filter(t => !readTopicIds.has(t.id));
+    console.log('[Filter] 已读过滤后:', before, '->', res.length);
   }
 
+  console.log('[Filter] 最终数量:', res.length);
+  if (res.length > 0) {
+    console.log('[Filter] 第一条数据 category_id:', res[0].category_id, 'title:', res[0].title?.substring(0, 30));
+  }
   return res;
 }
 
@@ -407,4 +437,4 @@ export function bindAutoRefreshIcon() {
   elements.autoRefreshToggle.innerHTML = ICONS.timer;
 }
 
-export { ICONS, CATEGORIES, TAG_COLORS };
+export { ICONS, TAG_COLORS };
