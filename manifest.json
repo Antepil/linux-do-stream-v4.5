@@ -18,7 +18,7 @@
     "service_worker": "background.js"
   },
   "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_path": "src/sidepanel/index.html"
   },
   "action": {
     "default_title": "打开 Linux.do 主题流"
@@ -31,8 +31,8 @@
     }
   ],
   "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
   }
 }
