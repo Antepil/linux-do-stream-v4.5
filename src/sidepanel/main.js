@@ -93,8 +93,11 @@ async function init() {
     categoryFilter.value = s.categoryFilter || 'all';
     subCategoryFilter.value = s.subCategoryFilter || CATEGORIES[0].id;
     sortFilter.value = s.sortFilter || 'latest';
+    config.sortFilter = sortFilter.value; // 将排序配置合并到 config
     if (autoRefreshEnabled) autoRefreshToggle.classList.add('active');
     toggleSubCategoryVisibility();
+  } else {
+    config.sortFilter = sortFilter.value || 'latest';
   }
 
   // 绑定图标
@@ -280,7 +283,11 @@ function bindEvents() {
   autoRefreshToggle.onclick = toggleAutoRefresh;
   categoryFilter.onchange = () => { toggleSubCategoryVisibility(); handleManualRefresh(); saveSettings(); };
   subCategoryFilter.onchange = () => { handleManualRefresh(); saveSettings(); };
-  sortFilter.onchange = () => { renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu); saveSettings(); };
+  sortFilter.onchange = () => {
+    config.sortFilter = sortFilter.value; // 同步更新 config.sortFilter
+    renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
+    saveSettings();
+  };
 
   // 用户按钮
   userBtn.onclick = (e) => {
