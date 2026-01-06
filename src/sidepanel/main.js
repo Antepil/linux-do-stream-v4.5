@@ -266,7 +266,9 @@ function handleCategoryToggle(slug) {
   } else {
     config.blockCategories.push(slug);
   }
-  updateConfigFromUI();
+  saveConfig(config);
+  // 更新屏蔽列表视觉状态
+  renderCategoryBlockList(categoryBlockList, config.blockCategories, handleCategoryToggle);
   renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
 }
 
