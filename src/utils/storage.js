@@ -15,7 +15,13 @@ export const DEFAULT_CONFIG = {
   fontSize: 'medium',
   compactMode: false,
   themeMode: 'system',
-  syncReadStatus: true
+  syncReadStatus: true,
+  aiEnabled: true,
+  aiApiUrl: '',
+  aiApiKey: '',
+  aiModel: 'MiniMax-M2.1',
+  aiTemperature: 0.7,
+  aiSummaryDepth: 'smart'
 };
 
 /**

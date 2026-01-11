@@ -4,8 +4,20 @@ const BASE_URL = 'https://linux.do';
 
 // 监听来自侧边栏的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 通过 content script 发送 API 请求（在页面上下文中，绕过 CORS）
   if (message.type === 'FETCH_API') {
-    fetchWithRetry(message.endpoint).then(sendResponse);
+    fetchViaContentScript(message.endpoint).then(sendResponse);
+    return true;
+  }
+
+  if (message.type === 'FETCH_POSTS') {
+    fetchPostsViaContentScript(message.topicId).then(sendResponse);
+    return true;
+  }
+
+  // 调用外部 AI API（通过 background 避免 CORS）
+  if (message.type === 'CALL_AI_API') {
+    callAIAPI(message.config, message.prompt).then(sendResponse);
     return true;
   }
 
@@ -127,6 +139,91 @@ async function fetchWithRetry(endpoint, retries = 2) {
 chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 });
+
+// 通过 content script 发送请求（在页面上下文中，绕过 CORS）
+async function fetchViaContentScript(endpoint) {
+  try {
+    // 查找 linux.do 的标签页
+    const tabs = await chrome.tabs.query({ url: 'https://linux.do/*' });
+    console.log('[Background] 找到 linux.do 标签页:', tabs.length);
+
+    if (tabs.length > 0) {
+      // 发送消息到 content script
+      const response = await chrome.tabs.sendMessage(tabs[0].id, {
+        type: 'FETCH_API',
+        endpoint: endpoint
+      });
+      console.log('[Background] ContentScript 响应:', response);
+      return response;
+    } else {
+      // 没有打开的标签页，直接请求
+      console.log('[Background] 没有打开的 linux.do 标签页，使用直接请求');
+      return await fetchWithRetry(endpoint);
+    }
+  } catch (error) {
+    console.error('[Background] ContentScript 请求失败:', error);
+    // 降级到直接请求
+    return await fetchWithRetry(endpoint);
+  }
+}
+
+async function fetchPostsViaContentScript(topicId) {
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://linux.do/*' });
+
+    if (tabs.length > 0) {
+      const response = await chrome.tabs.sendMessage(tabs[0].id, {
+        type: 'FETCH_POSTS',
+        topicId: topicId
+      });
+      return response;
+    } else {
+      // 降级到直接请求
+      return await fetchPostsDirectly(topicId);
+    }
+  } catch (error) {
+    console.error('[Background] ContentScript 获取帖子失败:', error);
+    // 降级到直接请求
+    return await fetchPostsDirectly(topicId);
+  }
+}
+
+// 直接获取帖子详情（不通过 content script）
+async function fetchPostsDirectly(topicId) {
+  const url = `${BASE_URL}/t/${topicId}/posts.json`;
+  console.log('[Background] 直接请求帖子:', url);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}`, posts: [] };
+    }
+
+    const data = await response.json();
+    console.log('[Background] 帖子响应数据结构:', Object.keys(data));
+
+    // 兼容两种数据结构：data.posts 或 data.post_stream.posts
+    const posts = data.posts || (data.post_stream && data.post_stream.posts) || [];
+    console.log('[Background] 获取到帖子数:', posts.length);
+
+    return {
+      success: true,
+      posts: posts,
+      topic: data.topic || data.post_stream?.topic
+    };
+  } catch (error) {
+    console.error('[Background] 直接请求帖子失败:', error);
+    return { success: false, error: error.message, posts: [] };
+  }
+}
 
 // 配置常量
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
@@ -288,5 +385,116 @@ async function logout() {
     console.log('退出登录成功');
   } catch (error) {
     console.error('退出登录失败:', error);
+  }
+}
+
+// 调用外部 AI API（通过 background 避免 CORS）
+async function callAIAPI(config, prompt) {
+  const { aiApiUrl, aiApiKey, aiModel, aiTemperature } = config;
+  const baseUrl = aiApiUrl.replace(/\/$/, '');
+
+  // 检测 API 类型
+  const isMiniMax = baseUrl.includes('minimax') && !baseUrl.includes('/v1/');
+  const isAnthropic = baseUrl.includes('anthropic') && !baseUrl.includes('/v1/');
+
+  let endpoint, requestBody, headers;
+
+  if (isMiniMax) {
+    // MiniMax API 格式 - 只取主机部分
+    const host = baseUrl.split('/').slice(0, 3).join('/');
+    endpoint = `${host}/v1/text/chatcompletion_v2`;
+    console.log('[AI-BG] MiniMax endpoint:', endpoint);
+    headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${aiApiKey}`
+    };
+    requestBody = {
+      model: aiModel || 'MiniMax-M2.1',
+      messages: [
+        { role: 'system', content: '你是一个乐于助人的助手，请用简洁的中文总结论坛帖子的讨论内容。' },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 1024,
+      temperature: aiTemperature || 0.9
+    };
+  } else if (isAnthropic) {
+    // Anthropic API 格式 - 只取主机部分
+    const host = baseUrl.split('/').slice(0, 3).join('/');
+    endpoint = `${host}/v1/messages`;
+    console.log('[AI-BG] Anthropic endpoint:', endpoint);
+    headers = {
+      'Content-Type': 'application/json',
+      'x-api-key': aiApiKey,
+      'anthropic-version': '2023-06-01'
+    };
+    requestBody = {
+      model: aiModel || 'MiniMax-M2.1',
+      max_tokens: 800,
+      temperature: aiTemperature,
+      messages: [{ role: 'user', content: prompt }]
+    };
+  } else {
+    // OpenAI 兼容格式 - 只取主机部分
+    const host = baseUrl.split('/').slice(0, 3).join('/');
+    endpoint = `${host}/v1/chat/completions`;
+    console.log('[AI-BG] OpenAI endpoint:', endpoint);
+    headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${aiApiKey}`
+    };
+    requestBody = {
+      model: aiModel || 'gpt-3.5-turbo',
+      messages: [
+        { role: 'system', content: '你是一个乐于助人的助手，请用简洁的中文总结论坛帖子的讨论内容。' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: aiTemperature,
+      max_tokens: 800
+    };
+  }
+
+  console.log('[AI-BG] 请求 API:', endpoint);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[AI-BG] API 错误响应:', errorText);
+      let errorMsg = `API 错误: ${response.status}`;
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.error?.message) {
+          errorMsg = errorData.error.message;
+        } else if (errorData.message) {
+          errorMsg = errorData.message;
+        } else if (errorData.base_resp?.msg) {
+          errorMsg = errorData.base_resp.msg;
+        }
+      } catch (e) {}
+      return { success: false, error: errorMsg };
+    }
+
+    const data = await response.json();
+    console.log('[AI-BG] 响应结构:', JSON.stringify(data).substring(0, 500));
+
+    // 解析响应
+    let summary = '';
+    if (isMiniMax) {
+      summary = data.choices?.[0]?.message?.content || data.choices?.[0]?.content || '';
+    } else if (isAnthropic) {
+      summary = data.content?.[0]?.text || '';
+    } else {
+      summary = data.choices?.[0]?.message?.content || '';
+    }
+
+    return { success: true, summary, usage: data.usage };
+  } catch (error) {
+    console.error('[AI-BG] API 调用失败:', error);
+    return { success: false, error: error.message || '网络请求失败' };
   }
 }

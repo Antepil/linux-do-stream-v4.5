@@ -20,6 +20,7 @@ import {
   CATEGORIES
 } from './ui-render.js';
 import { showToast } from '../utils/formatters.js';
+import { initAIPanel, closeAISummaryModal } from './ai-panel.js';
 
 // DOM 元素
 const topicList = document.getElementById('topicList');
@@ -63,13 +64,22 @@ let userDropdownVisible = false;
 
 // 初始化 DOM 元素
 initElements({
-  topicList, statusIndicator, topicCountEl, refreshBtn, autoRefreshToggle,
+  topicList, statusIndicator, topicCount: topicCountEl, refreshBtn, autoRefreshToggle,
   categoryFilter, subCategoryFilter, sortFilter, refreshProgress,
   userBtn, settingsBtn, backToFeedBtn, settingsView, resetSettingsBtn,
   categoryBlockList, pollingInterval, lowDataMode, keywordBlacklist,
   qualityFilter, hoverPreview, readStatusAction, showBadge, notifyKeywords,
   fontSize, compactMode
 });
+
+/**
+ * AI配置变更回调
+ */
+function handleAIConfigChange(newConfig) {
+  config = { ...config, ...newConfig };
+  saveConfig(config);
+  window.config = config;
+}
 
 /**
  * 初始化入口
@@ -80,11 +90,17 @@ async function init() {
   config = storedData.config;
   readTopicIds = storedData.readTopicIds;
 
+  // 设置全局config供AI模块使用
+  window.config = config;
+
   // 初始化 UI
   fillSubCategories(subCategoryFilter);
   renderCategoryBlockList(categoryBlockList, config.blockCategories, handleCategoryToggle);
   loadConfigToUI();
   applyAppearance(config);
+
+  // 初始化AI面板
+  initAIPanel(config, handleAIConfigChange);
 
   // 加载用户设置
   if (storedData.userSettings) {

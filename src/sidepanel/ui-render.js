@@ -1,6 +1,7 @@
 // UI 渲染模块 - 封装所有 DOM 操作
 
 import { formatTime, formatNumber, escapeHtml, getTrustBadge, showToast } from '../utils/formatters.js';
+import { openAISummaryModal } from './ai-panel.js';
 
 // 图标定义
 const ICONS = {
@@ -266,7 +267,13 @@ function showContextMenu(e, topic) {
     <div class="menu-item" onclick="window.copyText('${url}')">复制链接</div>
     <div class="menu-item" onclick="window.copyText('[${topic.title.replace(/'/g, "\\'")}](${url})')">复制 Markdown</div>
     <div class="menu-item" onclick="window.toggleRead(${topic.id})">标记为未读</div>
+    <div class="menu-item ai-summarize" data-topic-id="${topic.id}">AI 总结</div>
   `;
+
+  // 绑定AI总结事件
+  menu.querySelector('.ai-summarize').onclick = () => {
+    openAISummaryModal(topic);
+  };
 
   menu.style.display = 'block';
   menu.style.left = `${Math.min(e.pageX, window.innerWidth - 160)}px`;
