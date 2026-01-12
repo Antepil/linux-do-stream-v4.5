@@ -21,7 +21,9 @@ export const DEFAULT_CONFIG = {
   aiApiKey: '',
   aiModel: 'MiniMax-M2.1',
   aiTemperature: 0.7,
-  aiSummaryDepth: 'smart'
+  aiSummaryDepth: 'smart',
+  // 分类筛选配置 - 空数组表示默认显示全部分类
+  visibleCategories: []
 };
 
 /**

@@ -7,76 +7,53 @@
 </head>
 <body>
   <div class="container">
-    <!-- 顶部工具栏 -->
-    <div class="toolbar">
-      <h1>Linux.do</h1>
-      <div class="toolbar-actions">
-        <button class="icon-btn" id="userBtn" title="用户中心">
-          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-        </button>
-        <button class="icon-btn" id="autoRefreshToggle" title="自动刷新开关"></button>
-        <button class="icon-btn" id="refreshBtn" title="手动刷新"></button>
+    <!-- 顶部导航栏 -->
+    <div class="header">
+      <div class="header-tabs">
+        <div class="header-tab active" data-tab="all">全部</div>
+        <div class="header-tab" data-tab="latest">最新</div>
+        <div class="header-tab" data-tab="top">热门</div>
+        <div class="header-tab" data-tab="favorite">收藏</div>
+      </div>
+      <div class="header-actions">
         <button class="icon-btn" id="settingsBtn" title="设置">
           <svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
         </button>
+        <button class="icon-btn" id="refreshBtn" title="刷新"></button>
+        <button class="icon-btn" id="userBtn" title="用户中心"></button>
       </div>
     </div>
 
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <div class="filter-row">
-        <div class="filter-group">
-          <select id="categoryFilter" class="filter-select">
-            <option value="all">全部</option>
-            <option value="latest">最新</option>
-            <option value="top">热门</option>
-            <option value="categories">分类浏览</option>
-          </select>
-        </div>
-        <div class="filter-group" id="subCategoryContainer" style="display:none">
-          <select id="subCategoryFilter" class="filter-select"></select>
-        </div>
-        <div class="filter-group">
-          <select id="sortFilter" class="filter-select">
-            <option value="latest">最新回复</option>
-            <option value="created">发布时间</option>
-            <option value="views">浏览量</option>
-            <option value="replies">回复数</option>
-          </select>
-        </div>
-      </div>
+      <button id="toggleCategoryBtn" class="filter-toggle-btn" title="收起/展开分类筛选">收起 ∨</button>
+      <div id="categoryTags" class="category-tags" style="display:none"></div>
     </div>
 
     <!-- 状态栏 -->
     <div class="status-bar">
-      <div class="status-content">
-        <div class="status-left">
-          <span class="status-dot" id="statusIndicator"></span>
-          <span class="status-label">Live</span>
-        </div>
-        <div class="status-right">
-          <span id="topicCount" class="highlight-num">0</span> <span class="unit">Topics</span>
-        </div>
+      <div class="status-left">
+        <span class="status-dot" id="statusIndicator"></span>
+        <span class="status-label">Live</span>
       </div>
-      <div class="progress-container">
-        <div id="refreshProgress" class="progress-bar"></div>
+      <div class="status-right">
+        <span id="topicCount" class="highlight-num">0</span> Topics
       </div>
     </div>
 
     <!-- 主题列表 -->
-    <div class="topic-list scrollable" id="topicList"></div>
+    <div class="topic-list" id="topicList"></div>
 
     <!-- 设置页面 (全屏覆盖) -->
     <div class="settings-view" id="settingsView">
       <div class="settings-header">
-        <button class="icon-btn back-btn" id="backToFeedBtn" title="返回主页">
+        <button class="icon-btn back-btn" id="backToFeedBtn" title="返回">
           <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
         <h2>设置</h2>
-        <div class="header-spacer"></div>
       </div>
-      <div class="settings-content scrollable">
-        <!-- 1. 核心数据与网络 -->
+      <div class="settings-content">
+        <!-- 核心数据与网络 -->
         <section class="settings-section">
           <h3>核心数据与网络</h3>
           <div class="setting-item">
@@ -89,83 +66,24 @@
               <option value="0">手动刷新</option>
             </select>
           </div>
-          <div class="setting-item">
-            <label>节流模式 (不加载头像/摘要)</label>
-            <input type="checkbox" id="lowDataMode" class="setting-toggle">
-          </div>
         </section>
 
-        <!-- 2. 内容过滤与降噪 -->
+        <!-- 内容过滤与降噪 -->
         <section class="settings-section">
           <h3>内容过滤与降噪</h3>
           <div class="setting-item vertical">
             <label>屏蔽分类 (点击切换)</label>
-            <div id="categoryBlockList" class="tag-selector-group">
-              <!-- 动态生成分类标签 -->
-            </div>
+            <div id="categoryBlockList" class="tag-selector-group"></div>
           </div>
           <div class="setting-item vertical">
-            <label>关键词黑名单 (逗号分隔)</label>
-            <input type="text" id="keywordBlacklist" class="setting-input" placeholder="例如: 拼车, aff, 机场">
-          </div>
-          <div class="setting-item">
-            <label>只看高热度 (回复 > 10)</label>
-            <input type="checkbox" id="qualityFilter" class="setting-toggle">
+            <label>关键词黑名单</label>
+            <input type="text" id="keywordBlacklist" class="setting-input" placeholder="逗号分隔">
           </div>
         </section>
 
-        <!-- 3. 交互与阅读体验 -->
-        <section class="settings-section">
-          <h3>交互与阅读体验</h3>
-          <div class="setting-item">
-            <label>悬停预览</label>
-            <input type="checkbox" id="hoverPreview" class="setting-toggle">
-          </div>
-          <div class="setting-item vertical">
-            <label>点击行为</label>
-            <div class="radio-group">
-              <label><input type="radio" name="clickBehavior" value="newTab" checked><span>新标签页</span></label>
-              <label><input type="radio" name="clickBehavior" value="background"><span>后台打开</span></label>
-            </div>
-          </div>
-          <div class="setting-item">
-            <label>已读处理</label>
-            <select id="readStatusAction" class="setting-select">
-              <option value="fade">变灰</option>
-              <option value="hide">隐藏</option>
-              <option value="none">不做处理</option>
-            </select>
-          </div>
-          <div class="setting-item">
-            <label>站内已读同步</label>
-            <input type="checkbox" id="syncReadStatus" class="setting-toggle">
-          </div>
-        </section>
-
-        <!-- 4. 通知与提醒 -->
-        <section class="settings-section">
-          <h3>通知与提醒</h3>
-          <div class="setting-item">
-            <label>图标角标 (未读数)</label>
-            <input type="checkbox" id="showBadge" class="setting-toggle">
-          </div>
-          <div class="setting-item vertical">
-            <label>强提醒关键词 (包含即通知)</label>
-            <input type="text" id="notifyKeywords" class="setting-input" placeholder="例如: OpenAI, 送号">
-          </div>
-        </section>
-
-        <!-- 5. 外观设置 -->
+        <!-- 外观设置 -->
         <section class="settings-section">
           <h3>外观设置</h3>
-          <div class="setting-item vertical">
-            <label>显示模式</label>
-            <div class="radio-group">
-              <label><input type="radio" name="themeMode" value="light"><span>亮色</span></label>
-              <label><input type="radio" name="themeMode" value="dark"><span>暗色</span></label>
-              <label><input type="radio" name="themeMode" value="system" checked><span>跟随系统</span></label>
-            </div>
-          </div>
           <div class="setting-item">
             <label>字体大小</label>
             <select id="fontSize" class="setting-select">
@@ -180,7 +98,7 @@
           </div>
         </section>
 
-        <!-- 6. 危险区域 -->
+        <!-- 危险区域 -->
         <section class="settings-section">
           <button id="resetSettingsBtn" class="danger-btn">恢复默认设置</button>
         </section>

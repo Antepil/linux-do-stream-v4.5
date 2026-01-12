@@ -1,13 +1,14 @@
 // 主入口文件 - 侧边栏调度逻辑
 
-import { getAllData, saveConfig, saveReadTopics, saveUserSettings, getConfig, defaultConfig } from '../utils/storage.js';
+import { getAllData, saveConfig, saveReadTopics, defaultConfig } from '../utils/storage.js';
+import { showToast } from '../utils/formatters.js';
 import { fetchTopics, checkUserStatus, clearUserCache, logout, markReadOnSite } from '../utils/api.js';
 import {
   initElements,
   showSkeleton,
   renderTopics,
   renderCategoryBlockList,
-  fillSubCategories,
+  renderCategoryTags,
   updateUserButton,
   showUserDropdown,
   hideUserDropdown,
@@ -15,40 +16,28 @@ import {
   updateTopicCount,
   setLoading,
   bindRefreshIcon,
-  bindAutoRefreshIcon,
   initContextMenu,
   CATEGORIES
 } from './ui-render.js';
-import { showToast } from '../utils/formatters.js';
-import { initAIPanel, closeAISummaryModal } from './ai-panel.js';
+import { initAIPanel } from './ai-panel.js';
 
 // DOM 元素
 const topicList = document.getElementById('topicList');
 const statusIndicator = document.getElementById('statusIndicator');
 const topicCountEl = document.getElementById('topicCount');
 const refreshBtn = document.getElementById('refreshBtn');
-const autoRefreshToggle = document.getElementById('autoRefreshToggle');
-const categoryFilter = document.getElementById('categoryFilter');
-const subCategoryContainer = document.getElementById('subCategoryContainer');
-const subCategoryFilter = document.getElementById('subCategoryFilter');
-const sortFilter = document.getElementById('sortFilter');
-const refreshProgress = document.getElementById('refreshProgress');
-const userBtn = document.getElementById('userBtn');
 const settingsBtn = document.getElementById('settingsBtn');
+const categoryTags = document.getElementById('categoryTags');
+const userBtn = document.getElementById('userBtn');
 const backToFeedBtn = document.getElementById('backToFeedBtn');
 const settingsView = document.getElementById('settingsView');
 const resetSettingsBtn = document.getElementById('resetSettingsBtn');
 const categoryBlockList = document.getElementById('categoryBlockList');
+const toggleCategoryBtn = document.getElementById('toggleCategoryBtn');
 
 // 设置项元素
 const pollingInterval = document.getElementById('pollingInterval');
-const lowDataMode = document.getElementById('lowDataMode');
 const keywordBlacklist = document.getElementById('keywordBlacklist');
-const qualityFilter = document.getElementById('qualityFilter');
-const hoverPreview = document.getElementById('hoverPreview');
-const readStatusAction = document.getElementById('readStatusAction');
-const showBadge = document.getElementById('showBadge');
-const notifyKeywords = document.getElementById('notifyKeywords');
 const fontSize = document.getElementById('fontSize');
 const compactMode = document.getElementById('compactMode');
 
@@ -56,19 +45,15 @@ const compactMode = document.getElementById('compactMode');
 let allTopics = [];
 let readTopicIds = new Set();
 let autoRefreshEnabled = true;
-let progressTimer = null;
-let currentProgress = 0;
 let config = { ...defaultConfig };
 let currentUser = null;
 let userDropdownVisible = false;
 
 // 初始化 DOM 元素
 initElements({
-  topicList, statusIndicator, topicCount: topicCountEl, refreshBtn, autoRefreshToggle,
-  categoryFilter, subCategoryFilter, sortFilter, refreshProgress,
-  userBtn, settingsBtn, backToFeedBtn, settingsView, resetSettingsBtn,
-  categoryBlockList, pollingInterval, lowDataMode, keywordBlacklist,
-  qualityFilter, hoverPreview, readStatusAction, showBadge, notifyKeywords,
+  topicList, statusIndicator, topicCount: topicCountEl, refreshBtn, settingsBtn,
+  userBtn, backToFeedBtn, settingsView, resetSettingsBtn,
+  categoryBlockList, pollingInterval, keywordBlacklist,
   fontSize, compactMode
 });
 
@@ -94,7 +79,6 @@ async function init() {
   window.config = config;
 
   // 初始化 UI
-  fillSubCategories(subCategoryFilter);
   renderCategoryBlockList(categoryBlockList, config.blockCategories, handleCategoryToggle);
   loadConfigToUI();
   applyAppearance(config);
@@ -102,23 +86,11 @@ async function init() {
   // 初始化AI面板
   initAIPanel(config, handleAIConfigChange);
 
-  // 加载用户设置
-  if (storedData.userSettings) {
-    const s = storedData.userSettings;
-    autoRefreshEnabled = s.autoRefreshEnabled !== false;
-    categoryFilter.value = s.categoryFilter || 'all';
-    subCategoryFilter.value = s.subCategoryFilter || CATEGORIES[0].id;
-    sortFilter.value = s.sortFilter || 'latest';
-    config.sortFilter = sortFilter.value; // 将排序配置合并到 config
-    if (autoRefreshEnabled) autoRefreshToggle.classList.add('active');
-    toggleSubCategoryVisibility();
-  } else {
-    config.sortFilter = sortFilter.value || 'latest';
-  }
+  // 初始化分类筛选
+  initCategoryFilter();
 
   // 绑定图标
   bindRefreshIcon();
-  bindAutoRefreshIcon();
 
   // 初始化用户状态
   await checkAndUpdateUserStatus();
@@ -135,6 +107,99 @@ async function init() {
   }
 
   initContextMenu();
+}
+
+/**
+ * 切换分类标签显示/隐藏
+ */
+function toggleCategoryVisibility() {
+  const isExpanded = categoryTags.style.display !== 'none';
+
+  if (isExpanded) {
+    // 收起
+    categoryTags.style.display = 'none';
+    toggleCategoryBtn.textContent = '展开 ∨';
+    localStorage.setItem('categoryFilterCollapsed', 'true');
+  } else {
+    // 展开
+    categoryTags.style.display = '';
+    toggleCategoryBtn.textContent = '收起 ∨';
+    localStorage.setItem('categoryFilterCollapsed', 'false');
+  }
+}
+
+/**
+ * 初始化分类筛选 - 默认显示全部分类
+ */
+function initCategoryFilter() {
+  // 默认选中全部分类
+  const defaultSlugs = CATEGORIES.map(c => c.slug);
+
+  // 从存储获取用户上次的选择
+  const storedSettings = JSON.parse(localStorage.getItem('categoryFilterState') || '{}');
+  let selectedCategories = storedSettings.selectedSlugs && storedSettings.selectedSlugs.length > 0
+    ? storedSettings.selectedSlugs
+    : defaultSlugs;
+
+  // 验证存储的分类是否有效
+  const validSlugs = new Set(defaultSlugs);
+  const isValid = selectedCategories.every(slug => validSlugs.has(slug));
+
+  // 如果存储的分类无效（包含不存在的 slug）或只有 1 个分类，则重置为全部分类
+  if (!isValid || selectedCategories.length <= 1) {
+    selectedCategories = defaultSlugs;
+    localStorage.setItem('categoryFilterState', JSON.stringify({ selectedSlugs: defaultSlugs }));
+  }
+
+  // 获取折叠状态
+  const isCollapsed = localStorage.getItem('categoryFilterCollapsed') === 'true';
+
+  // 根据折叠状态设置初始显示
+  if (isCollapsed) {
+    categoryTags.style.display = 'none';
+    toggleCategoryBtn.textContent = '展开 ∨';
+  } else {
+    categoryTags.style.display = '';
+    toggleCategoryBtn.textContent = '收起 ∨';
+  }
+
+  // 渲染所有分类标签
+  renderCategoryTags(categoryTags, CATEGORIES, selectedCategories, handleCategoryTagToggle);
+
+  // 绑定收起/展开按钮
+  toggleCategoryBtn.onclick = toggleCategoryVisibility;
+
+  // 保存到全局
+  window.selectedCategorySlugs = selectedCategories;
+}
+
+/**
+ * 处理分类标签切换
+ */
+function handleCategoryTagToggle(slug) {
+  if (!categoryTags) return;
+
+  let selectedSlugs = window.selectedCategorySlugs || CATEGORIES.map(c => c.slug);
+
+  if (selectedSlugs.includes(slug)) {
+    // 如果已经选中，至少保留一个分类
+    if (selectedSlugs.length > 1) {
+      selectedSlugs = selectedSlugs.filter(s => s !== slug);
+    }
+  } else {
+    selectedSlugs.push(slug);
+  }
+
+  window.selectedCategorySlugs = selectedSlugs;
+
+  // 保存到 localStorage
+  localStorage.setItem('categoryFilterState', JSON.stringify({ selectedSlugs }));
+
+  // 更新 UI
+  renderCategoryTags(categoryTags, CATEGORIES, selectedSlugs, handleCategoryTagToggle);
+
+  // 刷新列表
+  handleManualRefresh();
 }
 
 /**
@@ -166,7 +231,8 @@ async function loadTopics() {
   try {
     setLoading(true);
     console.log('[Main] 开始加载主题...');
-    const res = await fetchTopics(categoryFilter.value, subCategoryFilter.value, CATEGORIES);
+    // 始终请求 latest.json，然后在客户端过滤
+    const res = await fetchTopics('latest', null, CATEGORIES);
     console.log('[Main] API 返回结果:', { success: res.success, topicsCount: res.topics?.length, error: res.error });
 
     if (res && res.success && res.topics && res.topics.length > 0) {
@@ -178,11 +244,32 @@ async function loadTopics() {
         console.warn('[Main] 警告: API 未返回 users 数组');
       }
 
+      // 调试：统计各分类的帖子数量
+      const categoryCount = {};
+      const unknownIds = {};
+      res.topics.forEach(t => {
+        // 使用 == 进行宽松比较（兼容字符串和数字）
+        const cat = CATEGORIES.find(c => c && String(c.id) === String(t.category_id));
+        const slug = cat ? cat.slug : 'unknown';
+        categoryCount[slug] = (categoryCount[slug] || 0) + 1;
+        if (!cat) {
+          unknownIds[t.category_id] = (unknownIds[t.category_id] || 0) + 1;
+        }
+      });
+      console.log('[Main] API 返回的分类统计:', categoryCount);
+      console.log('[Main] 未匹配的 category_id 及数量:', unknownIds);
+      console.log('[Main] CATEGORIES 中的 ID:', CATEGORIES.map(c => c.id + ''));
+
+      // 临时：显示所有帖子（不按分类过滤）
       allTopics = res.topics;
+
+      // 打印每个帖子的 category_id（用于调试）
+      console.log('[Main] 前10个帖子的 category_id:', res.topics.slice(0, 10).map(t => ({ id: t.id, category_id: t.category_id, title: t.title?.slice(0, 20) })));
+
       checkNotifications(allTopics);
-      renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
+      renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick);
       updateTopicCount(allTopics.length);
-      console.log('[Main] 渲染完成，共', allTopics.length, '条主题');
+      console.log('[Main] 渲染完成，共', allTopics.length, '条主题 (从', res.topics.length, '条中筛选)');
     } else if (res && res.success && res.topics && res.topics.length === 0) {
       console.warn('[Main] 主题列表为空');
       topicList.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无内容 (可能被过滤)</div>`;
@@ -266,14 +353,7 @@ function markAsRead(id, postNumber) {
   }
 
   saveReadTopics(readTopicIds);
-  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
-}
-
-/**
- * 处理右键菜单
- */
-function handleContextMenu(topic) {
-  // 上下文菜单由 ui-render 处理
+  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick);
 }
 
 /**
@@ -288,7 +368,7 @@ function handleCategoryToggle(slug) {
   saveConfig(config);
   // 更新屏蔽列表视觉状态
   renderCategoryBlockList(categoryBlockList, config.blockCategories, handleCategoryToggle);
-  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
+  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick);
 }
 
 /**
@@ -296,14 +376,23 @@ function handleCategoryToggle(slug) {
  */
 function bindEvents() {
   refreshBtn.onclick = handleManualRefresh;
-  autoRefreshToggle.onclick = toggleAutoRefresh;
-  categoryFilter.onchange = () => { toggleSubCategoryVisibility(); handleManualRefresh(); saveSettings(); };
-  subCategoryFilter.onchange = () => { handleManualRefresh(); saveSettings(); };
-  sortFilter.onchange = () => {
-    config.sortFilter = sortFilter.value; // 同步更新 config.sortFilter
-    renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
-    saveSettings();
-  };
+
+  // Header tabs 切换 - 简化逻辑，不再联动筛选栏
+  document.querySelectorAll('.header-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.header-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      handleManualRefresh();
+    };
+  });
+
+  // 点击其他地方关闭右键菜单
+  document.addEventListener('click', (e) => {
+    const m = document.getElementById('customContextMenu');
+    if (m && !e.target.closest('.custom-menu') && !e.target.closest('.topic-item')) {
+      m.style.display = 'none';
+    }
+  });
 
   // 用户按钮
   userBtn.onclick = (e) => {
@@ -328,25 +417,19 @@ function bindEvents() {
       updateConfigFromUI();
       loadConfigToUI();
       applyAppearance(config);
-      renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
+      // 重置分类筛选
+      localStorage.removeItem('categoryFilterState');
+      localStorage.removeItem('categoryFilterCollapsed');
+      initCategoryFilter();
+      renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick);
       if (autoRefreshEnabled) startAutoRefresh();
     }
   };
 
   // 设置变更
-  [pollingInterval, lowDataMode, keywordBlacklist, qualityFilter, hoverPreview, readStatusAction, showBadge, notifyKeywords, fontSize, compactMode].forEach(el => {
+  [pollingInterval, keywordBlacklist, fontSize].forEach(el => {
     el.onchange = updateConfigFromUI;
   });
-
-  document.querySelectorAll('input[name="clickBehavior"], input[name="themeMode"]').forEach(el => {
-    el.onchange = updateConfigFromUI;
-  });
-
-  // 点击其他地方关闭右键菜单
-  document.onclick = () => {
-    const m = document.getElementById('customContextMenu');
-    if (m) m.style.display = 'none';
-  };
 }
 
 /**
@@ -383,30 +466,27 @@ async function doLogout() {
 }
 
 /**
+ * 切换设置页面显示
+ * @param {boolean} show - true 显示设置页，false 显示主页
+ */
+function toggleSettingsView(show) {
+  if (show) {
+    settingsView.classList.add('visible');
+  } else {
+    settingsView.classList.remove('visible');
+  }
+}
+
+/**
  * 加载配置到 UI
  */
 function loadConfigToUI() {
   pollingInterval.value = config.pollingInterval;
-  lowDataMode.checked = config.lowDataMode;
-  keywordBlacklist.value = config.keywordBlacklist;
-  qualityFilter.checked = config.qualityFilter;
-  hoverPreview.checked = config.hoverPreview;
-  readStatusAction.value = config.readStatusAction;
-  showBadge.checked = config.showBadge;
-  notifyKeywords.value = config.notifyKeywords;
-  fontSize.value = config.fontSize;
-  compactMode.checked = config.compactMode;
+  keywordBlacklist.value = config.keywordBlacklist || '';
+  fontSize.value = config.fontSize || 'medium';
+  compactMode.checked = config.compactMode || false;
 
-  const syncReadStatus = document.getElementById('syncReadStatus');
-  if (syncReadStatus) syncReadStatus.checked = config.syncReadStatus;
-
-  const clickRadio = document.querySelector(`input[name="clickBehavior"][value="${config.clickBehavior}"]`);
-  if (clickRadio) clickRadio.checked = true;
-
-  const themeRadio = document.querySelector(`input[name="themeMode"][value="${config.themeMode || 'system'}"]`);
-  if (themeRadio) themeRadio.checked = true;
-
-  // 更新标签组状态
+  // 更新分类标签状态
   document.querySelectorAll('.selectable-tag').forEach(tag => {
     const slug = tag.dataset.slug;
     if (config.blockCategories.includes(slug)) {
@@ -421,55 +501,25 @@ function loadConfigToUI() {
  * 保存配置
  */
 function updateConfigFromUI() {
-  const syncReadStatus = document.getElementById('syncReadStatus');
   config = {
     ...config,
-    pollingInterval: parseInt(pollingInterval.value),
-    lowDataMode: lowDataMode.checked,
+    pollingInterval: parseInt(pollingInterval.value) || 60,
     keywordBlacklist: keywordBlacklist.value,
-    qualityFilter: qualityFilter.checked,
-    hoverPreview: hoverPreview.checked,
-    clickBehavior: document.querySelector('input[name="clickBehavior"]:checked').value,
-    readStatusAction: readStatusAction.value,
-    showBadge: showBadge.checked,
-    notifyKeywords: notifyKeywords.value,
     fontSize: fontSize.value,
-    compactMode: compactMode.checked,
-    themeMode: document.querySelector('input[name="themeMode"]:checked').value,
-    syncReadStatus: syncReadStatus ? syncReadStatus.checked : true
+    compactMode: compactMode.checked
   };
-
   saveConfig(config);
   applyAppearance(config);
-  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick, handleContextMenu);
-  if (autoRefreshEnabled) startAutoRefresh();
+  renderTopics(allTopics, config, readTopicIds, window.allUsersMap, handleTopicClick);
 }
 
-/**
- * 保存设置
- */
-function saveSettings() {
-  saveUserSettings({
-    autoRefreshEnabled,
-    categoryFilter: categoryFilter.value,
-    subCategoryFilter: subCategoryFilter.value,
-    sortFilter: sortFilter.value
-  });
-}
-
-/**
- * 切换子分类可见性
- */
-function toggleSubCategoryVisibility() {
-  subCategoryContainer.style.display = categoryFilter.value === 'categories' ? 'block' : 'none';
-}
+// 定时器 ID
+let refreshTimer = null;
 
 /**
  * 手动刷新
  */
 async function handleManualRefresh() {
-  currentProgress = 0;
-  refreshProgress.style.width = '0%';
   await loadTopics();
 }
 
@@ -478,49 +528,21 @@ async function handleManualRefresh() {
  */
 function startAutoRefresh() {
   stopAutoRefresh();
-  if (config.pollingInterval === 0) return;
-
-  currentProgress = 0;
-  refreshProgress.style.width = '0%';
-
-  progressTimer = setInterval(() => {
-    currentProgress += (100 / config.pollingInterval);
-    requestAnimationFrame(() => {
-      refreshProgress.style.width = `${Math.min(currentProgress, 100)}%`;
-    });
-    if (currentProgress >= 100) {
-      handleManualRefresh();
-    }
-  }, 1000);
+  if (config.pollingInterval > 0) {
+    refreshTimer = setInterval(() => {
+      loadTopics();
+    }, config.pollingInterval * 1000);
+    console.log('[Main] 自动刷新已启动，间隔', config.pollingInterval, '秒');
+  }
 }
 
 /**
  * 停止自动刷新
  */
 function stopAutoRefresh() {
-  clearInterval(progressTimer);
-  refreshProgress.style.width = '0%';
-}
-
-/**
- * 切换自动刷新
- */
-function toggleAutoRefresh() {
-  autoRefreshEnabled = !autoRefreshEnabled;
-  autoRefreshToggle.classList.toggle('active');
-  autoRefreshEnabled ? startAutoRefresh() : stopAutoRefresh();
-  saveSettings();
-}
-
-/**
- * 切换设置页面显示
- * @param {boolean} show - true 显示设置页，false 显示主页
- */
-function toggleSettingsView(show) {
-  if (show) {
-    settingsView.classList.add('visible');
-  } else {
-    settingsView.classList.remove('visible');
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
   }
 }
 
